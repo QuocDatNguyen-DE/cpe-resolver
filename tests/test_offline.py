@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import cpe_resolver as cr
+from resolver import model as m
+from resolver.cpe import CPE_FIELDS, split_cpe
 
 CATALOG = [  # (cpeName, title, deprecated)
     ("cpe:2.3:a:gitlab:gitlab:17.5.0:*:*:*:community:*:*:*", "GitLab 17.5.0 Community Edition", False),
@@ -20,8 +22,8 @@ CATALOG = [  # (cpeName, title, deprecated)
 
 def match(pattern, name):
     p = pattern.split(":")[2:]
-    n = cr.split_cpe(name)
-    return all(pv in ("*", "") or pv == n[f] for pv, f in zip(p, cr.CPE_FIELDS))
+    n = split_cpe(name)
+    return all(pv in ("*", "") or pv == n[f] for pv, f in zip(p, CPE_FIELDS))
 
 class FakeNvd:
     calls = 0
@@ -51,17 +53,17 @@ def check(aid, status, cpe):
     r = by[aid]
     assert r.status == status and r.new == cpe, (aid, r)
 
-check("SRV-01", cr.S_EXACT, "cpe:2.3:a:gitlab:gitlab:17.5.0:*:*:*:community:*:*:*")
-check("SRV-06", cr.S_VERSION, "cpe:2.3:a:gitlab:runner:17.5.0:*:*:*:*:*:*:*")
-check("SRV-03", cr.S_MANUAL, None)                      # "CU14" nicht NVD-konform
-check("SRV-04", cr.S_EXACT, "cpe:2.3:a:veeam:veeam_backup_\\&_replication:12.0.0.1420:*:*:*:*:*:*:*")
-check("NB-01", cr.S_BUILD, "cpe:2.3:o:microsoft:windows_11_23h2:*:*:*:*:*:*:*:*")
-check("FS-01", cr.S_BUILD, "cpe:2.3:o:microsoft:windows_server_2019:*:*:*:*:*:*:*:*")
-check("SRV-11", cr.S_VERSION, "cpe:2.3:a:wordpress:wordpress:6.4.3:*:*:*:*:*:*:*")  # deprecated ignoriert
-check("SW-01", cr.S_MANUAL, None)                       # nicht im Katalog
-check("SRV-12", cr.S_MANUAL, None)                      # 2025 darf nicht auf 2019 fallen
-check("NB-02", cr.S_MANUAL, None)                       # Win10 darf nicht auf Win11 fallen
-check("DC-01", cr.S_BUILD, "cpe:2.3:o:microsoft:windows_server_2019:*:*:*:*:*:*:*:*")
+check("SRV-01", m.S_EXACT, "cpe:2.3:a:gitlab:gitlab:17.5.0:*:*:*:community:*:*:*")
+check("SRV-06", m.S_VERSION, "cpe:2.3:a:gitlab:runner:17.5.0:*:*:*:*:*:*:*")
+check("SRV-03", m.S_MANUAL, None)                      # "CU14" nicht NVD-konform
+check("SRV-04", m.S_EXACT, "cpe:2.3:a:veeam:veeam_backup_\\&_replication:12.0.0.1420:*:*:*:*:*:*:*")
+check("NB-01", m.S_BUILD, "cpe:2.3:o:microsoft:windows_11_23h2:*:*:*:*:*:*:*:*")
+check("FS-01", m.S_BUILD, "cpe:2.3:o:microsoft:windows_server_2019:*:*:*:*:*:*:*:*")
+check("SRV-11", m.S_VERSION, "cpe:2.3:a:wordpress:wordpress:6.4.3:*:*:*:*:*:*:*")  # deprecated ignoriert
+check("SW-01", m.S_MANUAL, None)                       # nicht im Katalog
+check("SRV-12", m.S_MANUAL, None)                      # 2025 darf nicht auf 2019 fallen
+check("NB-02", m.S_MANUAL, None)                       # Win10 darf nicht auf Win11 fallen
+check("DC-01", m.S_BUILD, "cpe:2.3:o:microsoft:windows_server_2019:*:*:*:*:*:*:*:*")
 
 import openpyxl
 wb = openpyxl.load_workbook(tmp / "assets_cpe.xlsx")
