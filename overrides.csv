@@ -1,0 +1,4 @@
+asset_id;vendor;product;version;cpe
+# Beispiele (Zeilen mit # werden ignoriert). Entweder vendor+product (+ optional version) ODER eine volle cpe angeben.
+# SRV-03;microsoft;exchange_server;;cpe:2.3:a:microsoft:exchange_server:2019:cumulative_update_14:*:*:*:*:*:*
+# SRV-02;atlassian;jira_software_data_center;9.12.0;

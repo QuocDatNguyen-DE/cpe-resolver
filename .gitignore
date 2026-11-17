@@ -1,0 +1,4 @@
+.nvd_cache/
+__pycache__/
+*.xlsx
+cpe_report.csv
