@@ -13,6 +13,23 @@ python3 cpe_resolver.py Assetverzeichnis.xlsx --apply    # schreibt Assetverzeic
 Optionen: `--overrides overrides.csv`, `--on-ambiguous clear|keep` (Standard `clear`), `--out`, `--report`, `--cache-dir`.
 Optionaler NVD-API-Key über `NVD_API_KEY` (ohne Key: ~6,5 s pro Anfrage, Antworten werden in `.nvd_cache/` gecacht).
 
+## Aufbau
+
+`cpe_resolver.py` ist der Einstiegspunkt (CLI, Ablauf). Die Logik liegt im Paket `resolver/`:
+
+| Modul | Inhalt |
+|---|---|
+| `cpe.py` | CPE-Strings zerlegen, maskieren, bauen |
+| `text.py` | Wortzerlegung, Hersteller-Vergleich |
+| `nvd.py` | NVD-Client mit Cache und Rate-Limit |
+| `model.py` | Status-Werte und Ergebnistypen |
+| `vendor_product.py` | vendor:product per Stichwortsuche bestimmen |
+| `version.py` | Version prüfen und CPE bauen |
+| `overrides.py` | `overrides.csv` laden und anwenden |
+| `resolve.py` | eine Asset-Zeile auflösen |
+| `excel.py` | Blatt lesen, CPE-Zelle + Kommentar schreiben |
+| `report.py` | CSV-Report |
+
 ## Status pro Asset (Kommentar an der CPE-Zelle + Report)
 
 | Status | Bedeutung |
