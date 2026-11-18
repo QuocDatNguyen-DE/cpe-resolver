@@ -19,6 +19,10 @@ NVD_MAX_ATTEMPTS = 4
 NVD_RETRY_WAIT = 30
 
 
+class SearchTooBroad(Exception):
+    """Die NVD lehnt eine keywordSearch mit zu vielen Treffern ab (HTTP 404)."""
+
+
 class NvdClient:
     def __init__(self, cache_dir: Path, api_key: str | None = None):
         self.cache_dir = cache_dir
@@ -72,7 +76,18 @@ class NvdClient:
                     print(f"  NVD HTTP {e.code}, warte {NVD_RETRY_WAIT} s ...", file=sys.stderr)
                     time.sleep(NVD_RETRY_WAIT)
                     continue
-                raise
+                # die NVD nennt den Grund im Header "message", z. B. "Invalid apiKey."
+                reason = e.headers.get("message") or e.reason
+                if "too broad" in str(reason).lower():
+                    raise SearchTooBroad(reason) from e
+                sys.exit(f"NVD-Anfrage fehlgeschlagen: HTTP {e.code} - {reason}")
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                # Timeout / Verbindungsabbruch: wie HTTP 5xx erneut versuchen
+                if attempt == NVD_MAX_ATTEMPTS - 1:
+                    sys.exit(f"NVD nicht erreichbar nach {NVD_MAX_ATTEMPTS} Versuchen: {e}")
+                print(f"  NVD-Verbindungsfehler ({e}), warte {NVD_RETRY_WAIT} s ...",
+                      file=sys.stderr)
+                time.sleep(NVD_RETRY_WAIT)
         raise RuntimeError("NVD nicht erreichbar")
 
     def _wait_for_rate_limit(self) -> None:
