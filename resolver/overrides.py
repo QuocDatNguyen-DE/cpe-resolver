@@ -37,7 +37,7 @@ def resolve_override(nvd: NvdClient, override: dict, row: dict) -> Resolution:
 
     version = override.get("version") or row["version"]
     resolution = resolve_version(nvd, VendorProduct(parts[0], vendor, product), version,
-                                 row["product"], "(Override)")
+                                 row["product"], "(Override)", check_related=False)
     if resolution.status != S_MANUAL:
         resolution.status = S_OVERRIDE
     return resolution

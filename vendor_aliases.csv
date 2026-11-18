@@ -1,0 +1,8 @@
+hersteller;nvd_vendor
+# Bestätigte Zuordnungen: Hersteller im Inventar -> NVD-Vendor (allgemein, nicht dateispezifisch).
+# Der Resolver schlägt Kandidaten vor ("Hersteller passt zu keinem NVD-Vendor"), übernimmt sie aber
+# erst, wenn sie hier eingetragen sind. Das Produkt wird weiterhin per NVD-Suche bestimmt.
+Igor Pavlov;7-zip
+win.rar GmbH;rarlab
+Open Source Matters;joomla
+OpenJS Foundation;nodejs

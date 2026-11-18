@@ -8,6 +8,7 @@ S_EXACT = "NVD exakt"
 S_VERSION = "Version nicht gelistet"
 S_BUILD = "Build unbekannt"
 S_OVERRIDE = "Override"
+S_DERIVED = "Abgeleitet"
 S_MANUAL = "Manuell prüfen"
 
 

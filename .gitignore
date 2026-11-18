@@ -3,3 +3,4 @@ __pycache__/
 *.xlsx
 cpe_report.csv
 .venv/
+.env
