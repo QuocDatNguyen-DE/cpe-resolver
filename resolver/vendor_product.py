@@ -8,6 +8,9 @@ from .model import ProductSearch, VendorProduct
 from .nvd import NvdClient, SearchTooBroad, active
 from .text import has_digit, name_key, slug, tokens, vendor_key, vendor_matches
 
+# Mehrdeutigkeit über die Version nur bei wenigen Kandidaten prüfen (je eine NVD-Abfrage)
+MAX_VERSION_CHECKS = 10
+
 
 def build_search_queries(vendor_words: list[str], product_words: list[str]) -> list[list[str]]:
     """Suchanfragen von spezifisch nach allgemein.
@@ -35,20 +38,43 @@ def collect_candidates(hits: list[dict], inventory_vendor: str, required: list[s
     Ein Kandidat zählt nur, wenn sein Vendor zum Inventar-Hersteller passt (außer bei
     any_vendor) und jede Release-Kennung im Produktnamen, in seinen Versionen oder
     Update-Feldern vorkommt (verhindert z. B. "Windows 10" -> windows_11_23h2;
-    "Windows 7 SP1" findet windows_7 über update=sp1).
+    "Windows 7 SP1" findet windows_7 über update=sp1). Eine Release-Kennung mit Punkt
+    zählt auch als ganzer Versionsanfang (".NET 6.0" -> Version 6.0.25, nicht 16.0.25).
     """
     evidence: dict[VendorProduct, set[str]] = {}
+    versions: dict[VendorProduct, set[str]] = {}
     for hit in hits:
         fields = split_cpe(hit["cpeName"])
         if not any_vendor and not vendor_matches(fields["vendor"], inventory_vendor, aliases):
             continue
         key = VendorProduct(fields["part"], fields["vendor"], fields["product"])
         words = evidence.setdefault(key, set(unescape(fields["product"]).split("_")))
+        versions.setdefault(key, set()).add(unescape(fields["version"]).lower())
         for field in ("version", "update"):
             value = unescape(fields[field]).lower()
             words.add(value)
             words.update(t for t in re.split(r"[._\-]", value) if t)
-    return sorted(key for key, words in evidence.items() if all(r in words for r in required))
+
+    def has_release(key: VendorProduct, release: str) -> bool:
+        return release in evidence[key] or (
+            "." in release and any(v.startswith(release + ".") for v in versions[key]))
+
+    return sorted(key for key in evidence if all(has_release(key, r) for r in required))
+
+
+def narrow_by_version(nvd: NvdClient, candidates: list[VendorProduct],
+                      inventory_version) -> VendorProduct | None:
+    """Unter mehrdeutigen Kandidaten den einzigen, der genau die Inventarversion führt
+    (google:chrome als a oder o, apache vs. apache_software_foundation:tomcat)."""
+    from .version import exact_entries, parse_inventory_version  # vermeidet Importzyklus
+
+    if not isinstance(inventory_version, str) or len(candidates) > MAX_VERSION_CHECKS:
+        return None
+    parsed = parse_inventory_version(inventory_version)
+    if parsed is None or not parsed.core:
+        return None
+    with_version = [c for c in candidates if exact_entries(nvd, c, parsed.core)]
+    return with_version[0] if len(with_version) == 1 else None
 
 
 def name_tiers(vendor_words: list[str], product_words: list[str], query_words: list[str],
@@ -73,16 +99,25 @@ def name_tiers(vendor_words: list[str], product_words: list[str], query_words: l
     # ohne Release-Kennungen (Struts 2 -> struts, Exchange Server 2010 -> exchange_server)
     no_release = name_key(slug([w for w in product_words if not has_digit(w)]))
 
+    def without_vendor_and_release(c: VendorProduct) -> str:
+        # beides zusammen (Red Hat Enterprise Linux 8 -> enterprise_linux)
+        v = vendor_key(c.vendor)
+        return name_key(slug([w for w in product_words if not has_digit(w)
+                              and not (len(name_key(w)) >= 3 and name_key(w) in v)]))
+
     return [
         ("Namensgleichheit", lambda c: name_key(c.product) in full),
         ("Namensgleichheit ohne Herstellerwörter",
          lambda c: name_key(c.product) == without_candidate_vendor(c) != ""),
         ("Namensgleichheit ohne Release-Kennung", lambda c: name_key(c.product) == no_release != ""),
+        ("Namensgleichheit ohne Hersteller- und Release-Wörter",
+         lambda c: name_key(c.product) == without_vendor_and_release(c) != ""),
     ]
 
 
 def find_vendor_product(nvd: NvdClient, inventory_vendor: str, inventory_product: str,
-                        aliases: dict[str, set[str]] | None = None) -> ProductSearch:
+                        aliases: dict[str, set[str]] | None = None,
+                        inventory_version=None) -> ProductSearch:
     vendor_words = tokens(inventory_vendor, drop_parens=True)
     product_words = tokens(inventory_product, drop_parens=True)
     # Release-Kennungen (2019, 2025, 11, 23h2, 14.04 ...) bestimmen das Produkt
@@ -104,9 +139,11 @@ def find_vendor_product(nvd: NvdClient, inventory_vendor: str, inventory_product
                            inventory_product)
         candidates = collect_candidates(hits, inventory_vendor, required, aliases)
         if not candidates:
-            # Hersteller passt nicht: gleichnamige Produkte nur als Vorschlag merken
+            # Hersteller passt nicht: Produkte, die exakt wie das Inventar-Produkt heißen,
+            # nur als Vorschlag merken (nicht wie die gekürzte Suche)
+            product_name = name_key(slug(product_words))
             suggestions |= {str(c) for c in collect_candidates(hits, "", required, any_vendor=True)
-                            if tiers[0][1](c)}
+                            if name_key(c.product) == product_name}
             continue  # nächste, allgemeinere Suche
         if len(candidates) == 1:
             return ProductSearch(candidates[0], f'eindeutig per Suche "{query}"')
@@ -119,6 +156,11 @@ def find_vendor_product(nvd: NvdClient, inventory_vendor: str, inventory_product
                 return ProductSearch(same_name[0], f'{label} bei Suche "{query}" '
                                                    f'({len(candidates)} Kandidaten)')
             if same_name:
+                by_version = narrow_by_version(nvd, same_name, inventory_version)
+                if by_version:
+                    return ProductSearch(by_version, f'{label} bei Suche "{query}" '
+                                                     f'({len(same_name)} gleichnamige Kandidaten, '
+                                                     f'nur einer führt die Inventarversion)')
                 return ProductSearch(None, f'{len(same_name)} gleichnamige Kandidaten bei '
                                            f'Suche "{query}" ({label})',
                                      [str(c) for c in same_name])

@@ -5,13 +5,23 @@ import sys
 from datetime import date
 
 from openpyxl.comments import Comment
+from openpyxl.styles import PatternFill
 
-from .model import Result
+from .model import S_BUILD, S_DERIVED, S_EXACT, S_MANUAL, S_OVERRIDE, S_VERSION, Result
 
 # interner Schlüssel -> Spaltenüberschrift im Blatt
 HEADERS = {"id": "ID", "vendor": "Hersteller", "product": "Produkt",
            "version": "Version", "cpe": "CPE"}
 MAX_CANDIDATES_IN_COMMENT = 15
+# Hintergrundfarbe der CPE-Zelle je Status (angelehnt an Excels "Gut"/"Neutral"/"Schlecht")
+STATUS_FILLS = {
+    S_EXACT: "C6EFCE",     # grün: bestätigt
+    S_OVERRIDE: "A9D08E",  # dunkleres Grün: bestätigt, von Hand festgelegt
+    S_DERIVED: "B7E1E6",   # türkis: Version exakt in der NVD, Produkt vom Resolver abgeleitet
+    S_BUILD: "FFEB9C",     # gelb: CPE stimmt, Version nachtragen
+    S_VERSION: "F8CBAD",   # orange: CPE gebaut, nicht von der NVD bestätigt
+    S_MANUAL: "FFC7CE",    # rot: keine CPE, nachhaken
+}
 
 
 def header_columns(ws) -> dict:
@@ -61,11 +71,14 @@ def read_assets(ws, columns: dict):
 
 
 def write_cpe_cell(cell, result: Result, clear_if_manual: bool) -> None:
-    """Schreibt die CPE (oder leert die Zelle) und hängt den Status als Kommentar an."""
+    """Schreibt die CPE (oder leert die Zelle), färbt die Zelle nach Status und hängt
+    den Status als Kommentar an."""
     if result.new:
         cell.value = result.new
     elif clear_if_manual:
         cell.value = None
+    color = STATUS_FILLS[result.status]
+    cell.fill = PatternFill(fill_type="solid", start_color=color, end_color=color)
 
     text = f"CPE-Status: {result.status}\n{result.detail}"
     if result.candidates:

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 from .cpe import EXTRA_FIELDS, WILDCARDS, build_cpe, escape, split_cpe, unescape
-from .model import S_BUILD, S_EXACT, S_VERSION, Resolution, VendorProduct, manual
+from .model import S_BUILD, S_DERIVED, S_EXACT, S_VERSION, Resolution, VendorProduct, manual
 from .nvd import NvdClient, active
 from .text import has_digit, name_key, tokens
 
@@ -97,8 +97,10 @@ def pick_version_entry(entries: list[dict], inventory_product: str, known: tuple
     Ein Eintrag passt, wenn alle seine gesetzten Zusatzfelder (update, edition,
     sw_edition ...) im Produktnamen oder in known (z. B. das bereits geprüfte Update)
     vorkommen. Unter den passenden gewinnt der mit den meisten Zusatzfeldern - aber
-    nur, wenn er der einzige ist.
-    Rückgabe: (Eintrag oder None, Hinweis).
+    nur, wenn er der einzige ist. Sonst gilt die gemeinsame CPE aller Einträge: Felder,
+    in denen sie sich unterscheiden (Plattform, Edition ...), werden "*" - vendor,
+    product und version sind ja bestätigt (Windows 10 22H2 x64/arm64/x86 -> "*").
+    Rückgabe: (Eintrag, Hinweis).
     """
     if len(entries) == 1:
         return entries[0], ""
@@ -119,7 +121,21 @@ def pick_version_entry(entries: list[dict], inventory_product: str, known: tuple
         best = [e for n, e in matching if n == most_extras]
         if len(best) == 1:
             return best[0], "aus mehreren Einträgen per Produktname gewählt"
-    return None, f"{len(entries)} Einträge mit dieser Version, keiner eindeutig"
+    return common_entry(entries)
+
+
+def common_entry(entries: list[dict]) -> tuple[dict, str]:
+    """Gemeinsame CPE mehrerer Einträge derselben Version: gleiche Felder bleiben,
+    unterschiedliche werden "*"."""
+    split = [split_cpe(e["cpeName"]) for e in entries]
+    fields = dict(split[0])
+    differing = [k for k in EXTRA_FIELDS if len({s[k] for s in split}) > 1]
+    for k in differing:
+        fields[k] = "*"
+    cpe = ":".join(["cpe", "2.3"] + list(fields.values()))
+    values = ", ".join(f"{k}=" + "/".join(sorted({unescape(s[k]) for s in split}))
+                       for k in differing)
+    return {"cpeName": cpe}, f"{len(entries)} Einträge mit dieser Version ({values}) -> \"*\""
 
 
 def cell_type_problem(value) -> str | None:
@@ -295,6 +311,18 @@ def resolve_version(nvd: NvdClient, vp: VendorProduct, inventory_version,
                           for v in equivalent])
         if resolution:
             return resolution
+        # die NVD führt die Version mit angehängter Build-Nummer (SonarQube 9.9.3 ->
+        # 9.9.3.79811); nur eindeutig übernehmen
+        with_build = sorted(v for v in product_versions(nvd, vp)
+                            if v.startswith(parsed.core + ".")
+                            and v[len(parsed.core) + 1:].isdigit())
+        if len(with_build) > 1:
+            return manual(f"{base}; Version {parsed.core} im Dictionary nur mit Build-Nummer, "
+                          f"mehrere Builds -> Override nötig", with_build[:20])
+        resolution = run([(v, parsed.update, f"Version {parsed.core} im Dictionary als {v} "
+                                             f"(mit Build-Nummer)") for v in with_build])
+        if resolution:
+            return resolution
 
     if parsed.update:
         # Ein Update-Teil, der nicht exakt passt, darf nicht still wegfallen
@@ -309,6 +337,9 @@ def resolve_version(nvd: NvdClient, vp: VendorProduct, inventory_version,
 
     if check_related:
         related = related_products(nvd, vp, version, inventory_product)
+        if len(related) == 1:
+            return derive_related_product(nvd, vp, related[0], version, inventory_product,
+                                          base, parsed.notes)
         if related:
             return manual(f"{base}; Version {version} nicht unter {vp.product}, aber exakt "
                           f"unter verwandtem Produkt desselben Herstellers -> Produktwahl prüfen",
@@ -319,6 +350,25 @@ def resolve_version(nvd: NvdClient, vp: VendorProduct, inventory_version,
                       f"passt nicht zur NVD (z. B. {examples}) -> Override nötig")
     return Resolution(S_VERSION, build_cpe(*vp, escape(version)),
                       "; ".join([base] + parsed.notes + [f"Version {version} nicht im Dictionary"]))
+
+
+def derive_related_product(nvd: NvdClient, vp: VendorProduct, related: str, version: str,
+                           inventory_product: str | None, base: str,
+                           notes: list[str]) -> Resolution:
+    """Genau ein verwandtes Produkt führt die Version exakt -> dessen Eintrag übernehmen
+    (Status "Abgeleitet": die Version ist bestätigt, die Produktwahl hat der Resolver
+    getroffen; ein Override hat immer Vorrang). Nur mit einem echten Eintrag: Passt
+    keiner eindeutig, wird nicht zusätzlich per "*" verallgemeinert."""
+    related_vp = VendorProduct(*related.split(":", 2))
+    entries = exact_entries(nvd, related_vp, version)
+    entry, note = pick_version_entry(entries, inventory_product)
+    if entry is None or entry not in entries:
+        return manual(f"{base}; Version {version} nicht unter {vp.product}, unter {related} "
+                      f"{note} -> Produktwahl prüfen", [e["cpeName"] for e in entries])
+    detail = "; ".join([base] + notes + [f"Version {version} nicht unter {vp.product}, aber "
+                                         f"exakt unter {related} -> Produkt abgeleitet"]
+                       + ([note] if note else []))
+    return Resolution(S_DERIVED, entry["cpeName"], detail)
 
 
 def resolve_unknown_version(nvd: NvdClient, vp: VendorProduct, version_raw: str,

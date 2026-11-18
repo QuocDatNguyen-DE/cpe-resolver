@@ -9,7 +9,8 @@ from .version import resolve_version
 
 
 def resolve_from_nvd(nvd: NvdClient, row: dict, aliases: dict | None = None) -> Resolution:
-    search = find_vendor_product(nvd, row["vendor"] or "", row["product"] or "", aliases)
+    search = find_vendor_product(nvd, row["vendor"] or "", row["product"] or "", aliases,
+                                 row["version"])
     if search.match is None:
         return manual(search.reason, search.candidates)
     return resolve_version(nvd, search.match, row["version"], row["product"],

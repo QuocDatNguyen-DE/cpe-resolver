@@ -35,7 +35,9 @@ Eine gesetzte Umgebungsvariable `NVD_API_KEY` hat Vorrang; andere Datei per `--c
 | `excel.py` | Blatt lesen, CPE-Zelle + Kommentar schreiben |
 | `report.py` | CSV-Report |
 
-## Status pro Asset (Kommentar an der CPE-Zelle + Report)
+## Status pro Asset (Zellfarbe + Kommentar an der CPE-Zelle + Report)
+
+Zellfarben: NVD exakt grün, Override dunkleres Grün, Abgeleitet türkis, Build unbekannt gelb, Version nicht gelistet orange, Manuell prüfen rot.
 
 | Status | Bedeutung |
 |---|---|
@@ -43,6 +45,7 @@ Eine gesetzte Umgebungsvariable `NVD_API_KEY` hat Vorrang; andere Datei per `--c
 | Version nicht gelistet | vendor:product bestätigt, Versionsschema passt zur NVD, kein verwandtes Produkt führt die Version; CPE mit Inventarversion gebaut |
 | Build unbekannt | vendor:product bestätigt, Version `*` (oder Release aus dem Produktnamen, z. B. `r2`) |
 | Override | aus `overrides.csv`, gegen NVD geprüft |
+| Abgeleitet | Version nicht unter dem gefundenen Produkt, aber exakt unter genau einem verwandten Produkt (z. B. Zabbix Server -> `zabbix:zabbix`); dessen Eintrag übernommen |
 | Manuell prüfen | kein/kein eindeutiger Treffer, Version nicht NVD-konform, Versionsschema passt nicht oder Version als Zahl/Datum in Excel; Zelle wird geleert |
 
 ## Test

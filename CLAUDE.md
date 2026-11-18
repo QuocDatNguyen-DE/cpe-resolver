@@ -5,6 +5,9 @@ Projekt: Cisco-AI / Projektseminar. Ziel: CPEs im Assetverzeichnis (Blatt `Asset
 ## Festgelegte Entscheidungen (mit Dat abgestimmt)
 - Nicht raten: vendor:product nur übernehmen, wenn eindeutig aus dem NVD-CPE-Dictionary bestimmt (oder per `overrides.csv`). Unklares -> Status "Manuell prüfen".
 - Spalte H wird überschrieben; bei "Manuell prüfen" wird H geleert (`--on-ambiguous clear`).
+- Status "Abgeleitet" (19.11.2026 mit Dat entschieden): führt genau ein verwandtes Produkt die Version exakt, wird dessen Eintrag übernommen; bei mehreren -> Manuell prüfen. Bekannte Grenze: "GitLab Runner" ohne Override würde zu `gitlab:gitlab` abgeleitet (gleiche Namensform wie Zabbix Server -> `zabbix:zabbix`) -> Override hat Vorrang. Hebel 2 (eindeutiger Hersteller-Vorschlag), 3 (Release statt Rot), 5 (Füllwörter) bewusst NICHT umgesetzt (Dat: Risiko falscher CPEs).
+- Plattform/Edition offen (19.11.2026 mit Dat entschieden): Mehrere exakte Einträge derselben Version, keiner passt per Produktname -> gemeinsame CPE, unterschiedliche Felder `*` (Status NVD exakt, Hinweis im Kommentar). Nicht bei "Abgeleitet" (keine zwei Unsicherheiten übereinander).
+- CPE-Zelle wird je Status eingefärbt (grün exakt, dunkleres Grün Override, türkis Abgeleitet, gelb Build unbekannt, orange Version nicht gelistet, rot Manuell prüfen), Farben in `resolver/excel.py` (`STATUS_FILLS`).
 - Status als Zellkommentar an H, KEINE neue Spalte einfügen (andere Blätter referenzieren feste Spaltenbereiche wie `Assets!$N:$Q`, `$S`, `$C`; Spalte D = `=MID(H,9,1)`).
 - Version unbekannt ("Build offen") -> `*`.
 - Version nicht im Dictionary -> CPE aus bestätigtem vendor:product + Inventarversion, Status "Version nicht gelistet".

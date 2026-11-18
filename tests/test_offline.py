@@ -56,9 +56,10 @@ def check(aid, status, cpe):
     assert r.status == status and r.new == cpe, (aid, r)
 
 check("SRV-01", m.S_EXACT, "cpe:2.3:a:gitlab:gitlab:17.5.0:*:*:*:community:*:*:*")
-# 17.5.0 fehlt bei runner, steht aber exakt unter gitlab:gitlab -> Produktwahl prüfen (Override)
+# 17.5.0 fehlt bei runner, steht aber unter gitlab:gitlab (CE und EE, keine passt zu
+# "GitLab Runner") -> keine Ableitung, Produktwahl prüfen (real per Override)
 check("SRV-06", m.S_MANUAL, None)
-assert by["SRV-06"].candidates == ["a:gitlab:gitlab"], by["SRV-06"]
+assert len(by["SRV-06"].candidates) == 2 and "gitlab:gitlab" in by["SRV-06"].detail, by["SRV-06"]
 check("SRV-03", m.S_EXACT, "cpe:2.3:a:microsoft:exchange_server:2019:cumulative_update_14:*:*:*:*:*:*")  # CU14 -> Update-Feld
 check("SRV-04", m.S_EXACT, "cpe:2.3:a:veeam:veeam_backup_\\&_replication:12.0.0.1420:*:*:*:*:*:*:*")
 check("NB-01", m.S_BUILD, "cpe:2.3:o:microsoft:windows_11_23h2:*:*:*:*:*:*:*:*")
@@ -106,6 +107,11 @@ cpe_cell = lambda aid: ws.cell(row_of[aid], cols["cpe"])
 assert cpe_cell("SRV-01").value == by["SRV-01"].new
 sw01 = cpe_cell("SW-01")
 assert sw01.value is None and "Manuell" in sw01.comment.text             # SW-01 geleert
+# Zellfarbe je Status: grün = bestätigt, gelb = Version offen, rot = nachhaken
+from resolver.excel import STATUS_FILLS
+for aid in ("SRV-01", "NB-01", "SW-01"):
+    assert cpe_cell(aid).fill.start_color.rgb.endswith(STATUS_FILLS[by[aid].status]), aid
+assert STATUS_FILLS[by["SRV-01"].status] != STATUS_FILLS[by["SW-01"].status]
 before, after = formulas(wb_in), formulas(wb)
 assert before and before == after, "Formeln verändert"                    # Formeln intakt
 print(f"\nBlatt {ws.title}: {len(after)} Formeln unverändert")
@@ -148,6 +154,16 @@ class EdgeNvd(FakeNvd):
         ("cpe:2.3:a:apache:struts:2.5.10:*:*:*:*:*:*:*", "Apache Struts 2.5.10", False),
         ("cpe:2.3:a:apache:struts_extras:2.0:*:*:*:*:*:*:*", "Apache Struts 2 Extras", False),
         ("cpe:2.3:a:keepass:keepass:2.40:*:*:*:*:*:*:*", "KeePass 2.40", False),
+        ("cpe:2.3:a:google:chrome:119.0.6045.200:*:*:*:*:*:*:*", "Google Chrome 119.0.6045.200", False),
+        ("cpe:2.3:o:google:chrome:100.0:*:*:*:*:*:*:*", "Google Chrome OS 100.0", False),
+        ("cpe:2.3:a:microsoft:.net:6.0.25:*:*:*:*:*:*:*", "Microsoft .NET 6.0.25", False),
+        ("cpe:2.3:o:redhat:enterprise_linux:8.0:*:*:*:*:*:*:*", "Red Hat Enterprise Linux 8.0", False),
+        ("cpe:2.3:a:redhat:enterprise_linux_server:8:*:*:*:*:*:*:*", "Red Hat Enterprise Linux Server 8", False),
+        ("cpe:2.3:a:sonarsource:sonarqube:9.9.3.79811:*:*:*:*:*:*:*", "SonarSource SonarQube 9.9.3.79811", False),
+        ("cpe:2.3:o:microsoft:windows_10_22h2:10.0.19045.3693:*:*:*:*:*:x64:*", "Windows 10 22H2 x64", False),
+        ("cpe:2.3:o:microsoft:windows_10_22h2:10.0.19045.3693:*:*:*:*:*:arm64:*", "Windows 10 22H2 arm64", False),
+        ("cpe:2.3:a:fortinet:forticlient:6.4.2:*:*:*:*:linux:*:*", "FortiClient 6.4.2 Linux", False),
+        ("cpe:2.3:a:fortinet:forticlient:6.4.2:*:*:*:*:windows:*:*", "FortiClient 6.4.2 Windows", False),
     ]
 
 def resolve(part_vendor_product, version, product):
@@ -219,21 +235,47 @@ general = [
      "cpe:2.3:a:python:python:3.8.10:*:*:*:*:*:*:*"),
     # gleichwertige Schreibweise in beide Richtungen
     ("a:sendmail:sendmail", "8.14.0", "Sendmail", m.S_EXACT, "cpe:2.3:a:sendmail:sendmail:8.14:*:*:*:*:*:*:*"),
-    # nicht gelistete Version, aber exakt unter verwandtem Produkt -> keine gebaute CPE
-    ("a:zabbix:zabbix_server", "5.0.12", "Zabbix Server", m.S_MANUAL, None),
-    ("a:citrix:netscaler", "13.0", "NetScaler ADC", m.S_MANUAL, None),
+    # nicht gelistete Version, aber exakt unter genau einem verwandten Produkt -> abgeleitet
+    ("a:zabbix:zabbix_server", "5.0.12", "Zabbix Server", m.S_DERIVED,
+     "cpe:2.3:a:zabbix:zabbix:5.0.12:*:*:*:*:*:*:*"),
+    ("a:citrix:netscaler", "13.0", "NetScaler ADC", m.S_DERIVED,
+     "cpe:2.3:a:citrix:application_delivery_controller:13.0:*:*:*:*:*:*:*"),
 ]
 for vp, version, product, status, cpe in general:
     r = resolve(vp, version, product)
     assert (r.status, r.cpe) == (status, cpe), (vp, version, r)
-assert resolve("a:citrix:netscaler", "13.0", "NetScaler ADC").candidates == \
-    ["a:citrix:application_delivery_controller"]
+assert "abgeleitet" in resolve("a:zabbix:zabbix_server", "5.0.12", "Zabbix Server").detail
 
 # Namensvergleich in Stufen: ohne Herstellerwörter, ohne Release-Kennung
 search = find_vendor_product(EdgeNvd(), "Pulse Secure", "Pulse Connect Secure")
 assert str(search.match) == "a:pulsesecure:connect_secure", search
 search = find_vendor_product(EdgeNvd(), "Apache", "Struts 2")
 assert str(search.match) == "a:apache:struts", search
+# Gepflegtes Inventar: Mehrdeutigkeit über die Version, Release mit Punkt als
+# Versionsanfang, Name ohne Hersteller- und Release-Wörter, Version ohne Build-Suffix
+search = find_vendor_product(EdgeNvd(), "Google", "Chrome", None, "119.0.6045.200")
+assert str(search.match) == "a:google:chrome", search
+search = find_vendor_product(EdgeNvd(), "Google", "Chrome", None, "1.0")
+assert search.match is None, search                                       # keiner führt 1.0
+search = find_vendor_product(EdgeNvd(), "Microsoft", ".NET 6.0")
+assert str(search.match) == "a:microsoft:.net", search
+search = find_vendor_product(EdgeNvd(), "Red Hat", "Red Hat Enterprise Linux 8")
+assert str(search.match) == "o:redhat:enterprise_linux", search
+# Version bestätigt, nur Plattform offen -> unterschiedliche Felder "*", gleiche bleiben
+r = resolve("o:microsoft:windows_10_22h2", "10.0.19045.3693", "Windows 10 Enterprise 22H2")
+assert (r.status, r.cpe) == (m.S_EXACT, "cpe:2.3:o:microsoft:windows_10_22h2:10.0.19045.3693:*:*:*:*:*:*:*"), r
+assert "arm64/x64" in r.detail, r
+r = resolve("a:fortinet:forticlient", "6.4.2", "FortiClient")
+assert r.cpe == "cpe:2.3:a:fortinet:forticlient:6.4.2:*:*:*:*:*:*:*", r
+r = resolve("a:fortinet:forticlient", "6.4.2", "FortiClient for Windows")   # Plattform im Namen
+assert r.cpe == "cpe:2.3:a:fortinet:forticlient:6.4.2:*:*:*:*:windows:*:*", r
+r = resolve("a:sonarsource:sonarqube", "9.9.3", "SonarQube")
+assert (r.status, r.cpe) == (m.S_EXACT, "cpe:2.3:a:sonarsource:sonarqube:9.9.3.79811:*:*:*:*:*:*:*"), r
+# Release mit Punkt passt nur als ganzer Versionsanfang (6.0 -> 6.0.25, nicht 16.0.25)
+from resolver.vendor_product import collect_candidates
+hits = [{"cpeName": "cpe:2.3:a:microsoft:.net:16.0.25:*:*:*:*:*:*:*", "deprecated": False}]
+assert collect_candidates(hits, "Microsoft", ["6.0"]) == []
+
 # Hersteller passt nicht: nur Vorschlag, keine Zuordnung
 search = find_vendor_product(EdgeNvd(), "Dominik Reichl", "KeePass")
 assert search.match is None and search.candidates == ["a:keepass:keepass"], search
